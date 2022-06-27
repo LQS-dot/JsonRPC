@@ -1,6 +1,9 @@
 # JsonRPC
-- This is a small project based on the JsonRPC framework, providing four internal RPC interfaces 1. nfs service detection interface 2. sftp service detection port 3.
-- Database backup based on nfs and sftp 4. Database recovery based on nfs and sftp
+###  This is a small project based on the JsonRPC framework, providing four internal RPC interfaces 
+  - 1. nfs service detection interface 
+  - 2. sftp service detection port
+  - 3. Database backup based on nfs and sftp 
+  - 4. Database recovery based on nfs and sftp
 
   # Related Services and Interpreters:
   - python3.6+ (Mainly jsonprc requirements, I use python3.10)
