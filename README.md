@@ -6,7 +6,7 @@
   - 4. Database recovery based on nfs and sftp
 
   # Related Services and Interpreters:
-  - python3.6+ (Mainly jsonprc requirements, I use python3.10)
+  - python3.6+ (Mainly jsonrpc requirements, I use python3.10)
   - asyncssh :
       asyncssh-2.11.0-py3-none-any.whl
   - jsonrpc:
