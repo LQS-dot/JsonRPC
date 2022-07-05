@@ -95,4 +95,4 @@ def application(request):
 
 
 if __name__ == "__main__":
-    run_simple("localhost", 4000, application)
+    run_simple("localhost", 4000, application, threaded = True)
