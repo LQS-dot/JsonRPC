@@ -30,19 +30,10 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 from connect.nfs_connect import Mount
+from loguru import logger
 
 
 Found = True
-
-
-class redirect:
-    content = ""
-
-    def write(self, str):
-        self.content += str
-
-    def flush(self):
-        self.content = ""
 
 
 class AsyncTrans:
@@ -73,6 +64,7 @@ class AsyncTrans:
                 result: 0 -> failed 1 -> success
                 message: cause
                 """
+                logger.warning("sftp db rollback failed,{e}", e=exc)
                 global Found
                 Found = False
         conn.close()
@@ -83,6 +75,7 @@ class AsyncTrans:
             tasks.append(self.connect(self.username, self.password, self.host))
             await asyncio.gather(*tasks)
         except (OSError, asyncssh.Error) as exc:
+            logger.warning("sftp db rollback failed,{e}", e=exc)
             global Found
             Found = False
 
@@ -122,16 +115,24 @@ class DbRollback:
         remotepath=None,
         record_id=None,
         pkgname=None,
+        action=None,
+        bkrolltime=None,
     ):
         self.uuid = str(uuid.uuid4())
         self.mode = mode
         self.localpath = localpath
         self.account = account
+        if password:
+            password = os.popen(
+                "{0} {1}".format(self.CONFIG_CLASS_MAP["decypt"], password)
+            ).read()
         self.password = password
         self.host = host
         self.remotepath = remotepath
         self.record_id = record_id
         self.pkgname = pkgname
+        self.action = action
+        self.bkrolltime = bkrolltime
         # nfs args
         self.nfs_dict = {
             "mode": self.mode,
@@ -221,8 +222,8 @@ class DbRollback:
             ).read()
 
             return True, ""
-        except IOError:
-            return False, "db connect failed"
+        except Exception as exc:
+            return False, exc
 
     @classmethod
     def mk_files(cls):
@@ -249,13 +250,16 @@ class DbRollback:
                 the old data needs to be read first and then written to the file.
         """
         record = {
-            "id": self.record_id,
+            "id": self.uuid,
             "progress": "10",
             "status": "11",
             "type": self.mode,
             "dstAddr": self.host,
             "dstPath": self.remotepath,
             "dstUser": self.account,
+            "action": self.action,
+            "BkRollTime": self.bkrolltime,
+            "remark": "",
             "bkTime": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "pkgName": self.pkgname,
         }
@@ -286,7 +290,8 @@ class DbRollback:
                     path="/tmp/dbrollback/",
                 )
             ).read()
-        except Exception:
+        except Exception as exc:
+            logger.warning("decypt failed,{e}", e=exc)
             global Found
             Found = False
 
@@ -295,14 +300,14 @@ class DbRollback:
         return json.dumps({"data": 0, "message": message})
 
     def run(self):
-	global Found
-	Found = True
         ### Entry and Scheduling
         if self.mode == "1":
             if "" in self.sftp_dict.values():
+                logger.warning("connect failed, maybe args be required")
                 return self.msg("connect failed, maybe args be required")
         elif self.mode == "2":
             if "" in self.nfs_dict.values():
+                logger.warning("connect failed, maybe args be required")
                 return self.msg("connect failed, maybe args be required")
             """
 				Write the backup record first and then start backing up the database
@@ -321,10 +326,14 @@ class DbRollback:
         if not trans_result:
             self.modi_record(progress="100", status="12")
             if self.mode == "2":
+                self.modi_record(
+                    remark="trans data failed,Whether the directory permissions are readable and writable"
+                )
                 return self.msg(
                     "trans data failed,Whether the directory permissions are readable and writable"
                 )
             else:
+                self.modi_record(remark="connect failed, trans failed")
                 return self.msg("connect failed, trans failed")
 
         """
@@ -333,14 +342,17 @@ class DbRollback:
         self.modi_record(progress="30")
         self.en_decypt(filename=self.pkgname)
         if not Found:
-            self.modi_record(progress="100", status="12")
+            self.modi_record(
+                progress="100", status="12", remark="connect failed, decypt failed"
+            )
             return self.msg("connect failed, decypt failed")
 
         self.modi_record(progress="50")
         # db back
         db_ret, data = self.db_rollback()
         if not db_ret:
-            self.modi_record(progress="100", status="12")
+            logger.warning("db rollback failed {e}", e=data)
+            self.modi_record(progress="100", status="12", remark=data)
             return self.msg(data)
         """
            : Start transferring data, set return value through global variable
@@ -353,6 +365,6 @@ class DbRollback:
         except Exception:
             pass
 
+        logger.success("db rollback success")
         self.modi_record(progress="100", status="10")
         return json.dumps({"data": 1, "message": ""})
-

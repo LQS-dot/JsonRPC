@@ -23,30 +23,31 @@ import asyncio, asyncssh, sys, os
 import argparse
 import uuid
 import json
+import datetime
 from typing import NoReturn, Dict, List
 from pathlib import Path
-
-
-class redirect:
-    content = ""
-
-    def write(self, str):
-        self.content += str
-
-    def flush(self):
-        self.content = ""
+from loguru import logger
 
 
 class AsyncExample:
+    CONFIG_CLASS_MAP = {
+        "decypt": "/opt/smc/hardware/sbin/decypt",
+    }
+
     def __init__(
         self, username: str, password: str, host: str, localpath: str, remotepath: str
     ) -> NoReturn:
         self.username = username
+        if password:
+            password = os.popen(
+                "{0} {1}".format(self.CONFIG_CLASS_MAP["decypt"], password)
+            ).read()
         self.password = password
         self.host = host
         self.localpath = localpath
         self.remotepath = remotepath + "/"
         self.ret = dict()
+        self.output = ""
 
     async def connect(self, username: str, password: str, host: str) -> NoReturn:
         conn = await asyncssh.connect(
@@ -61,16 +62,17 @@ class AsyncExample:
                 result: 0 -> failed 1 -> success
                 message: cause
                 """
-                print(
-                    json.dumps(
-                        {
-                            "data": 0,
-                            "message": "connect failed, maybe no directory or connect refused",
-                        }
-                    )
+                logger.warning("sftp connect failed, {e}", e=exc)
+                self.output = json.dumps(
+                    {
+                        "data": 0,
+                        "message": "connect failed, maybe no directory or connect refused",
+                    }
                 )
+                return
 
-        print(json.dumps({"data": 1, "message": ""}))
+        logger.success("sftp connect success")
+        self.output = json.dumps({"data": 1, "message": ""})
 
         ### 清理传输文件
         try:
@@ -87,22 +89,31 @@ class AsyncExample:
             tasks.append(self.connect(self.username, self.password, self.host))
             await asyncio.gather(*tasks)
         except (OSError, asyncssh.Error) as exc:
-            print(
-                json.dumps(
-                    {
-                        "data": 0,
-                        "message": "connect failed, maybe no directory or connect refused",
-                    }
-                )
+            logger.warning("sftp connect failed, {e}", e=exc)
+            self.output = json.dumps(
+                {
+                    "data": 0,
+                    "message": "connect failed, maybe no directory or connect refused",
+                }
             )
 
     def __call__(self):
         # print string -> r
-        r = redirect()
-        sys.stdout = r
-
         async def main():
             await self.gather()
 
         asyncio.run(main())
-        return r.content.replace("\n", "")
+        return self.output.replace("\n", "")
+
+
+# if __name__ == "__main__":
+#    kwargs = json.loads(sys.argv[1])
+#    sftp = AsyncExample(
+#        kwargs.get("account"),
+#        kwargs.get("password"),
+#        kwargs.get("storeServerAddr"),
+#        localpath=Path(__file__),
+#        remotepath=kwargs.get("storePath"),
+#    )
+#    sftp()
+#

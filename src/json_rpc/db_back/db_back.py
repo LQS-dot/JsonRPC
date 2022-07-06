@@ -30,19 +30,10 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 from connect.nfs_connect import Mount
+from loguru import logger
 
 
 Found = True
-
-
-class redirect:
-    content = ""
-
-    def write(self, str):
-        self.content += str
-
-    def flush(self):
-        self.content = ""
 
 
 class AsyncTrans:
@@ -73,6 +64,7 @@ class AsyncTrans:
                 result: 0 -> failed 1 -> success
                 message: cause
                 """
+                logger.warning("sftp trans failed,{e}", e=exc)
                 global Found
                 Found = False
         conn.close()
@@ -83,6 +75,7 @@ class AsyncTrans:
             tasks.append(self.connect(self.username, self.password, self.host))
             await asyncio.gather(*tasks)
         except (OSError, asyncssh.Error) as exc:
+            logger.warning("sftp trans failed,{e}", e=exc)
             global Found
             Found = False
 
@@ -120,14 +113,21 @@ class DbBack:
         password=None,
         host=None,
         remotepath=None,
+        action=None,
     ):
         self.uuid = str(uuid.uuid4())
         self.mode = mode
         self.localpath = localpath
         self.account = account
+        self.en_passwd = password
+        if password:
+            password = os.popen(
+                "{0} {1}".format(self.CONFIG_CLASS_MAP["decypt"], password)
+            ).read()
         self.password = password
         self.host = host
         self.remotepath = remotepath
+        self.action = action
         # nfs args
         self.nfs_dict = {
             "mode": self.mode,
@@ -210,7 +210,10 @@ class DbBack:
             with open("/tmp/dbback/proversion", "w") as fp:
                 fp.write(proversion)
 
-        except IOError:
+            self.modi_record(version=proversion)
+
+        except Exception as exc:
+            logger.warning("mysqldump failed,{e}", e=exc)
             global Found
             Found = False
 
@@ -249,6 +252,10 @@ class DbBack:
             "dstAddr": self.host,
             "dstPath": self.remotepath,
             "dstUser": self.account,
+            "action": self.action,
+            "version": "",
+            "password": self.en_passwd,
+            "remark": "",
             "bkTime": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "pkgName": datetime.datetime.now().strftime("%Y_%m_%d")
             + "_"
@@ -285,7 +292,8 @@ class DbBack:
                     pwd=passwd, file=filename
                 )
             ).read()
-        except Exception:
+        except Exception as exc:
+            logger.warning("encypt failed,{e}", e=exc)
             global Found
             Found = False
 
@@ -294,14 +302,16 @@ class DbBack:
         return json.dumps({"data": 0, "message": message})
 
     def run(self):
-	global Found
-	Found = True
+        global Found
+        Found = True
         ### Entry and Scheduling
         if self.mode == "1":
             if "" in self.sftp_dict.values():
+                logger.warning("connect failed, maybe args be required")
                 return self.msg("connect failed, maybe args be required")
         elif self.mode == "2":
             if "" in self.nfs_dict.values():
+                logger.warning("connect failed, maybe args be required")
                 return self.msg("connect failed, maybe args be required")
 
             """
@@ -309,12 +319,19 @@ class DbBack:
 				func: add_record
 					: db_back
 			"""
+        logger.info("args verify {f}", f=Found)
         self.mk_files()
+        logger.info(Found)
+        logger.info("files mkdir {f}", f=Found)
         # write back record
         self.add_record
+        logger.info("record add {f}", f=Found)
         # db back
         self.db_back()
+        logger.info("mysqldump and write pro {f}", f=Found)
         if not Found:
+            logger.warning("db connect failed")
+            self.modi_record(progress="100", status="2", remark="db connect failed")
             return self.msg("db connect failed")
         """
            : Update progress
@@ -325,7 +342,7 @@ class DbBack:
         self.modi_record(progress="50")
 
         if not Found:
-            self.modi_record(progress="100", status="3")
+            self.modi_record(progress="100", status="2", remark="encypt failed")
             return self.msg("encypt failed")
 
         """
@@ -346,14 +363,18 @@ class DbBack:
             pass
 
         if trans_result:
+            logger.success("db back success")
             self.modi_record(progress="100", status="0")
             return json.dumps({"data": 1, "message": ""})
         else:
-            self.modi_record(progress="100", status="3")
+            self.modi_record(progress="100", status="2")
             if self.mode == "2":
+                self.modi_record(
+                    remark="trans data failed,Whether the directory permissions are readable and writable"
+                )
                 return self.msg(
                     "trans data failed,Whether the directory permissions are readable and writable"
                 )
             else:
+                self.modi_record(remark="trans data failed")
                 return self.msg("trans data failed")
-

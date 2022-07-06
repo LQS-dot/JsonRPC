@@ -9,6 +9,7 @@ import tempfile
 import argparse
 import json
 from pathlib import Path
+from loguru import logger
 
 
 class Mount:
@@ -151,7 +152,8 @@ class Mount:
                         try:
                             Path(self.mount_local).mkdir(parents=True)
                             Path(self.mount_local).chmod(0o777)
-                        except Exception:
+                        except Exception as exc:
+                            logger.warning("nfs connect failed,{e}", e=exc)
                             return found, json.dumps(
                                 {"data": 0, "message": "mount failed"}
                             )
@@ -174,14 +176,17 @@ class Mount:
 
                 found = self._check_mount()
 
-            except Exception:
+            except Exception as exc:
+                logger.warning("nfs connect failed,{e}", e=exc)
                 return found, json.dumps(
                     {"data": 0, "message": "mount failed,{ms}".format(ms=stdout_value)}
                 )
 
         if found:
+            logger.success("nfs connect success")
             return found, json.dumps({"data": 1, "message": ""})
         else:
+            logger.warning("mount failed,{ms}", ms=stdout_value)
             return found, json.dumps(
                 {"data": 0, "message": "mount failed,{ms}".format(ms=stdout_value)}
             )
