@@ -295,7 +295,7 @@ class DbBack:
 
     def run(self):
 	global Found
-	Found = False
+	Found = True
         ### Entry and Scheduling
         if self.mode == "1":
             if "" in self.sftp_dict.values():
