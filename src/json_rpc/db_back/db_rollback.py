@@ -295,6 +295,8 @@ class DbRollback:
         return json.dumps({"data": 0, "message": message})
 
     def run(self):
+	global Found
+	Found = True
         ### Entry and Scheduling
         if self.mode == "1":
             if "" in self.sftp_dict.values():
