@@ -294,6 +294,8 @@ class DbBack:
         return json.dumps({"data": 0, "message": message})
 
     def run(self):
+	global Found
+	Found = False
         ### Entry and Scheduling
         if self.mode == "1":
             if "" in self.sftp_dict.values():
